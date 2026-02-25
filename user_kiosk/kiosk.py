@@ -6,6 +6,7 @@ import csv
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 
 canvas = None
 scrollbar = None
@@ -131,18 +132,18 @@ class OrderHistoryWindow(Toplevel):
         super().__init__(master)
         self.title("주문 내역")
         self.geometry("400x450")
-        self.order_listbox = Listbox(self, width=50, height=15, font=('Malgun Gothic', 12))
-        scrollbar = Scrollbar(self, command=self.order_listbox.yview)
-        self.order_listbox.config(yscrollcommand=scrollbar.set)
+        self.order_label = Label(self, text="주문내역", font=('Malgun Gothic', 14, 'bold'))
+        self.order_label.pack(side='top')
+        self.order_listbox = Listbox(self, width=50, height=15, font=('Malgun Gothic', 12, 'bold'))
+        
 
         self.total_price = 0  # 전체 주문 가격 초기화
 
         for order in order_history_list:
-            self.order_listbox.insert(END, f"메뉴이름: {order['메뉴이름']}, 수량: {order['수량']}, 가격: {order['가격']}")
+            self.order_listbox.insert(END, f"{order['메뉴이름']} X {order['수량']}       {order['가격']}원")
             self.total_price += order['가격']  # 주문 가격 누적
 
         self.order_listbox.pack(pady=10)
-        scrollbar.pack(side="right", fill="y")
 
         # 총 가격 표시 레이블
         total_label = Label(self, text=f"총 가격: {self.total_price}원", font=('Malgun Gothic', 12, 'bold'))
@@ -229,15 +230,120 @@ def save_order_to_csv():
     except Exception as e:
         msgbox.showerror("오류", f"주문이 완료되지 못하였습니다. 다시 시도하여 주십시오.: {str(e)}")
 
-# 관리자 창
+def set_korean_font():
+    plt.rcParams['font.family']='Malgun Gothic' # Windows(전체 폰트 설정)
+    # plt.rcParams['font.family']='AppleGothic' # Mac
+    plt.rcParams['font.size']=10 # 글자크기
+    plt.rcParams['axes.unicode_minus']=False # 한글 폰트 사용 시, 마이너스 글자가 깨지는 현상 해결
+
 def show_setting():
     password = simpledialog.askstring("비밀번호 입력", "비밀번호를 입력하세요:", show='*')
+    # 날짜 생성
+    dates = pd.date_range(start='2023-12-01 17:00:00', end='2023-12-31 01:00:00', freq='H')
+
+    # 랜덤 데이터 생성
+    np.random.seed(42)
+    data = {
+        '시간': np.random.choice(dates, size=1000),
+        '메뉴': np.random.choice(['탁탁후라이드치킨', '곱창탁전골', '돼지탁탁불백', '골뱅이탁탁무침', '국물탁발', '해장탁라면',
+                                '탁탁해물파전', '반건조탁징어', '두부김치', '탁막걸리', '참이슬', '카스'], size=1000),
+        '수량': np.random.randint(1, 10, size=1000),
+        '가격': np.random.randint(5000, 15000, size=1000)
+    }
+
+    df = pd.DataFrame(data)
+
+    # 영업시간에 해당하는 데이터만 선택
+    df = df[(df['시간'].dt.hour >= 17) | (df['시간'].dt.hour <= 1)]
 
     # 비번 확인
     if password == "1234":
         # 키오스크 종료 함수
         def close_root():
             root.destroy()
+
+        def plot_graph(graph_type, df):
+            set_korean_font()  # 한글 폰트 설정
+
+            # Add '매출액' column to the DataFrame
+            df['매출액'] = df['수량'] * df['가격']
+
+            # 1번째 그래프
+            if graph_type == '기간별 판매량 확인하기':
+                fig, ax1 = plt.subplots(figsize=(15, 6))
+                # Resample data to daily frequency
+                daily_sales = df.resample('D', on='시간').agg({'수량': 'sum', '매출액': 'sum'})
+                color = 'tab:red'
+                ax1.set_xlabel('날짜')
+                ax1.set_ylabel('매출액 (만 원)', color=color)
+                ax1.bar(daily_sales.index, daily_sales['매출액'] / 10000, color=color)
+                ax1.tick_params(axis='y', labelcolor=color)
+                ax1.set_xticks(daily_sales.index)
+                ax1.set_xticklabels(daily_sales.index.strftime('%m-%d'), rotation=45, ha='right')
+                for i, value in enumerate(daily_sales['매출액']):
+                    ax1.text(daily_sales.index[i], value / 10000, f'{value // 10000}만', ha='center', va='bottom')
+                ax1.plot(daily_sales.index, daily_sales['매출액'] / 10000, marker='o', markersize=8, color='black',
+                        linestyle='-', linewidth=2)
+                fig.tight_layout()
+                plt.title('기간별 매출액')
+                plt.show()
+
+
+            elif graph_type == '자리별 산점도 확인하기':
+                table_numbers = np.random.choice([1, 1, 1, 2, 3, 4, 5, 5, 5, 6, 7, 8, 9, 9, 9, 10, 11, 12, 13, 13, 13, 14, 15, 16], size=len(df))
+                df['테이블번호'] = table_numbers
+
+                fig, ax = plt.subplots(figsize=(12, 8))
+
+                scatter = ax.scatter(df.index, df['테이블번호'], c=df['수량'], cmap='viridis', s=df['수량'] * 20, alpha=0.7)
+                plt.colorbar(scatter, label='수량')
+
+                ax.set_title('자리별 산점도')
+                ax.set_xlabel('시간')
+                ax.set_ylabel('테이블 번호')
+
+                ax.set_yticks(np.arange(1, 17))  # y축에 1부터 16까지 표시
+                plt.show()
+
+            elif graph_type == '메뉴별 판매량 확인하기':
+                menu_types = [['탁탁후라이드치킨', '곱창탁전골', '돼지탁탁불백', '골뱅이탁탁무침', '국물탁발', '해장탁라면'],
+                            ['탁탁해물파전', '반건조탁징어', '두부김치'],
+                            ['탁막걸리', '참이슬', '카스']]
+
+                fig, ax = plt.subplots(figsize=(15, 8))  # 그래프 크기 조정
+
+                # 색상 구성
+                colors = plt.cm.viridis(np.linspace(0, 1, len(df['메뉴'].unique())))
+
+                for i, menu_type in enumerate(menu_types):
+                    menu_sales = df[df['메뉴'].isin(menu_type)].groupby('메뉴').agg({'수량': 'sum', '매출액': 'sum'})
+                    ax.bar(menu_sales.index, menu_sales['수량'], color=colors[i], label=f'{menu_type[0]} 등 {len(menu_type)}개 메뉴')
+
+                    # 각 막대 위에 판매량 표시
+                    for x, y in zip(menu_sales.index, menu_sales['수량']):
+                        ax.text(x, y, f'{y}', ha='center', va='bottom')
+
+                ax.set_ylabel('수량')
+                ax.set_title('메뉴별 판매량')
+                ax.legend()
+                plt.xticks(rotation=45, ha='right')  # 메뉴명을 45도 회전하여 표시
+                plt.show()
+
+            elif graph_type == '시간별 판매량 확인하기':
+                df = pd.read_csv('sales.csv', encoding='cp949')
+                timedata = df.iloc[10,3::3]
+                labels = ['17시','18시','19시','20시','21시','22시','23시','24시']
+                wedgeprops={'width': 0.3, 'edgecolor': 'black', 'linewidth': 2}
+                # 면적이 작아서 %표시 안하고 싶을때
+                def custom_autopct(pct):
+                    if pct >= 10:
+                        return '{:.1f}%'.format(pct)
+                    else:
+                        return ''
+                plt.title('시간별 판매량')
+                plt.pie(timedata, labels=labels, autopct=custom_autopct, startangle=90, counterclock=False, wedgeprops=wedgeprops, pctdistance=0.5)
+                plt.legend(loc=(1.1, 0.1))
+                plt.show()
 
         msgbox.showinfo("알림", "비밀번호가 확인되었습니다. 관리자 창을 띄웁니다.")
 
@@ -251,46 +357,41 @@ def show_setting():
         settings_window.configure(bg='#686666')
 
         # 메인 로고
-        label = Label(settings_window, image=main_logo, borderwidth=0)
-        label.grid(row=0,column=0, pady=5)
+        main_frame = Frame(settings_window, relief='solid', bd=0)
+        main_frame.grid(row=0, column=1, pady=20)
+        main_frame.configure(bg='#686666')
+        main_label = Label(main_frame, text='아래 버튼을 클릭하여 매출을 확인해보세요!', font=('Malgun Gothic', 16, 'bold'), bg='#686666', fg='white')
+        main_label.pack()
 
         # 그래프 frame
         graphe_frame = Frame(settings_window, relief='solid', bd=0)
-        graphe_frame.grid(row=1, column=1, pady=20, padx=10)
+        graphe_frame.grid(row=1, column=1, pady=100, padx=50)
+        graphe_frame.configure(bg='#686666')
 
         # 그래프 frame 안 버튼
-        sales_per_hour_btn = Button(graphe_frame, text='기간별 판매량 확인하기', font=('Malgun Gothic', 14, 'bold'))
-        sales_per_hour_btn.grid(row=0, column=0, sticky=N+E+W+S, padx=2, pady=5)
-        spot_scatter_btn = Button(graphe_frame, text='자리별 산점도 확인하기', font=('Malgun Gothic', 14, 'bold'))
-        spot_scatter_btn.grid(row=0, column=1, sticky=N+E+W+S, padx=2, pady=5)
-        sales_per_menu_btn = Button(graphe_frame, text='메뉴별 판매량량 확인하기', font=('Malgun Gothic', 14, 'bold'))
-        sales_per_menu_btn.grid(row=0, column=2, sticky=N+E+W+S, padx=2, pady=5)
-
-        # 그래프
-        x = np.linspace(0,2*np.pi,100)
-        y = np.sin(x)
-
-        fig, ax = plt.subplots(figsize=(6,3))
-        ax.plot(x, y)
-        ax.set_title('Sin Curve')
-
-        canvas = FigureCanvasTkAgg(fig, master=graphe_frame)
-        canvas_width = canvas.get_tk_widget()
-        canvas_width.grid(row=1, column=0, columnspan=3, sticky=N+E+W+S)
+        sales_per_mth_btn = Button(graphe_frame, text='기간별 판매량 확인하기', font=('Malgun Gothic', 14, 'bold'), command=lambda: plot_graph('기간별 판매량 확인하기', df))
+        spot_scatter_btn = Button(graphe_frame, text='자리별 산점도 확인하기', font=('Malgun Gothic', 14, 'bold'), command=lambda: plot_graph('자리별 산점도 확인하기', df))
+        sales_per_menu_btn = Button(graphe_frame, text='메뉴별 판매량 확인하기', font=('Malgun Gothic', 14, 'bold'), command=lambda: plot_graph('메뉴별 판매량 확인하기', df))
+        sales_per_hour_btn = Button(graphe_frame, text='시간별 판매량 확인하기', font=('Malgun Gothic', 14, 'bold'), command=lambda: plot_graph('시간별 판매량 확인하기', df))
 
         # 전원버튼
         off_root_btn = Button(settings_window, text="키오스크 및 관리자 창 종료", command=close_root, font=('Malgun Gothic', 12, 'bold'))
         off_root_btn.grid(row=2, column=1, pady=20)
 
+        # 버튼 배치
+        sales_per_mth_btn.grid(row=0, column=0, padx=10)
+        spot_scatter_btn.grid(row=0, column=1, padx=10)
+        sales_per_menu_btn.grid(row=0, column=2, padx=10)
+        sales_per_hour_btn.grid(row=0, column=3, padx=10)
+
+
     else:
         msgbox.showerror("오류", "비밀번호가 일치하지 않습니다.")
 
 
-
-
 root = Tk()
 root.title("메뉴")
-root.geometry("1100x640")  # 전체 너비를 늘려주었습니다.
+root.geometry("1100x640")  # 전체 너비를 늘려주었습니다.fw
 root.resizable(False, False) 
 
 # 스타일 설정
@@ -406,7 +507,7 @@ cart_image = PhotoImage(file='./img/shopping_cart.png')
 
 # cart_content_frame의 크기 설정
 cart_content_frame = Frame(cart_frame, bg="white", width=500, height=500)
-cart_content_frame.pack(expand=True, fill="both")
+cart_content_frame.pack()
 
 # 폰트 설정
 cart_label_font = ('Malgun Gothic', 14, 'bold')
@@ -465,7 +566,7 @@ menu1_btn.grid(row=1, column=0)
 # 메뉴 2
 quantity_var_menu2 = IntVar()
 menu2_image = PhotoImage(file='./img/전.png')
-menu2_btn = Button(menu_list_inner_frame, text="탁탁해물파전\n10000원", image=menu2_image, compound='top', bg='#535050', fg='white', command=lambda:add_to_cart("전", "10000", quantity_var_menu2))
+menu2_btn = Button(menu_list_inner_frame, text="탁탁해물파전\n10000원", image=menu2_image, compound='top', bg='#535050', fg='white', command=lambda:add_to_cart("탁탁해물파전", "10000", quantity_var_menu2))
 menu2_btn.grid(row=1, column=1)
 
 # 메뉴 3
